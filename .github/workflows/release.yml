@@ -37,4 +37,6 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           prerelease: true
+          body_path: docs/发布说明.md
+          name: 航标选品 ${{ github.ref_name }}
           files: dist/*
