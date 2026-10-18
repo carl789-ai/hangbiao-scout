@@ -1,0 +1,18 @@
+// Direct agent adapter: the caller supplies access to their own connected daily Chrome.
+import {readFile,appendFile,mkdir,writeFile,rename,open} from 'node:fs/promises';import {unlinkSync} from 'node:fs';import {resolve,join} from 'node:path';import {pathToFileURL} from 'node:url';import {DOMParser} from 'linkedom';import {parseSearch,norm,SITES} from '../extension/core.js';
+const [inputPath,adapterPath,outDir]=process.argv.slice(2);
+if(!inputPath||!adapterPath||!outDir){console.error('用法：npm ci --ignore-scripts 后，node agent/collect.mjs 输入.json 你自己的浏览器适配器.mjs 输出目录');process.exit(1);}
+const input=JSON.parse(await readFile(inputPath,'utf8')),site=input.site||'com';if(!SITES[site]||!Array.isArray(input.keywords))throw new Error('输入须含有效site和keywords数组');
+const {fetchInBrowser}=await import(pathToFileURL(resolve(adapterPath)).href);if(typeof fetchInBrowser!=='function')throw new Error('适配器需导出fetchInBrowser({url,timeoutMs})，返回{status,url,html}');
+const dir=resolve(outDir);await mkdir(dir,{recursive:true});const lockPath=join(dir,'run.lock');let lock;try{lock=await open(lockPath,'wx');}catch(e){if(e.code==='EEXIST')throw new Error('输出目录已有run.lock；确认旧进程结束后再删除该锁以恢复，不能同时运行两份采集。');throw e;}await lock.writeFile(String(process.pid));await lock.close();process.on('exit',()=>{try{unlinkSync(lockPath);}catch{}});const journal=join(dir,'results.jsonl');let old='';try{old=await readFile(journal,'utf8');}catch(e){if(e.code!=='ENOENT')throw e;}
+const done=new Set();for(const line of old.split('\n')){if(!line.trim())continue;try{const item=JSON.parse(line);if(item.site===site&&item.status==='done')done.add(norm(item.keyword));}catch{throw new Error('已有results.jsonl损坏，请先备份并修复，不会覆盖它');}}
+const unique=[...new Map(input.keywords.map(k=>[norm(k),String(k).trim()])).values()].filter(Boolean);let pending=unique.filter(k=>!done.has(norm(k))),reason='',processed=unique.length-pending.length;
+const checkpoint=async()=>{const state={site,total:unique.length,completed:processed,pending:unique.length-processed,state:reason?'paused':processed===unique.length?'complete':'running',reason,aiEnabled:false,updatedAt:new Date().toISOString()};const temp=join(dir,'progress.json.tmp');await writeFile(temp,JSON.stringify(state,null,2));await rename(temp,join(dir,'progress.json'));return state;};
+await checkpoint();let stopping=false;process.on('SIGINT',()=>{stopping=true;});process.on('SIGTERM',()=>{stopping=true;});
+for(let i=0;i<pending.length&&!stopping;i+=Math.max(1,Math.min(5,Number(input.concurrency)||3))){const batch=pending.slice(i,i+Math.max(1,Math.min(5,Number(input.concurrency)||3)));
+ const responses=await Promise.all(batch.map(async keyword=>{try{const url=`https://www.amazon.${site}/s?k=${encodeURIComponent(keyword)}`,res=await fetchInBrowser({url,timeoutMs:30000});if(res.status!==200)throw new Error('Amazon HTTP '+res.status);if(new URL(res.url||url).hostname!==`www.amazon.${site}`)throw new Error('意外跨站跳转');const data=parseSearch(res.html,keyword,site,s=>new DOMParser().parseFromString(s,'text/html'));return {keyword,site,status:'done',data};}catch(e){return {keyword,site,status:'failed',error:e.message};}}));
+ // Serialize journal writes to make every completed record independently recoverable.
+ for(const result of responses){await appendFile(journal,JSON.stringify(result)+'\n');if(result.status==='done'){done.add(norm(result.keyword));processed++;}else reason=reason||result.error;}
+ await checkpoint();if(reason)break;await new Promise(r=>setTimeout(r,Math.max(500,Number(input.delayMs)||1200)));
+}
+if(stopping)reason='Agent已停止，结果保留';console.log(JSON.stringify(await checkpoint(),null,2));

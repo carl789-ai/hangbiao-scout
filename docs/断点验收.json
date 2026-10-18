@@ -1,0 +1,28 @@
+{
+  "total": 20000,
+  "partial": {
+    "completed": 5000,
+    "failed": 5,
+    "pending": 15000,
+    "redirect": 0,
+    "search": 5000,
+    "total": 20000,
+    "untouched": 14995,
+    "working": 0
+  },
+  "final": {
+    "completed": 20000,
+    "failed": 0,
+    "pending": 0,
+    "redirect": 0,
+    "search": 20000,
+    "total": 20000,
+    "untouched": 0,
+    "working": 0
+  },
+  "resumed": 15000,
+  "inputRows": 20001,
+  "csvDataRows": 5001,
+  "rotations": 10,
+  "pass": true
+}

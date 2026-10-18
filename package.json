@@ -1,0 +1,15 @@
+{
+  "name": "hangbiao-scout",
+  "version": "2.0.0-beta.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "agent": "node agent/server.mjs",
+    "pack": "python3 scripts/package.py"
+  },
+  "devDependencies": {
+    "fake-indexeddb": "6.2.4",
+    "linkedom": "0.18.12"
+  }
+}

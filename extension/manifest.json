@@ -1,0 +1,41 @@
+{
+  "manifest_version": 3,
+  "name": "航标选品 · 采集工作台",
+  "version": "2.0.0",
+  "version_name": "2.0.0-beta.1",
+  "description": "本地保存的亚马逊关键词采集、断点续采、结果导出与自定义 AI 中转站。",
+  "minimum_chrome_version": "116",
+  "permissions": [
+    "storage",
+    "unlimitedStorage",
+    "offscreen",
+    "alarms",
+    "activeTab",
+    "scripting",
+    "power"
+  ],
+  "host_permissions": [
+    "https://www.amazon.com/*",
+    "https://www.amazon.de/*",
+    "https://www.amazon.fr/*",
+    "https://www.amazon.co.uk/*",
+    "https://www.amazon.co.jp/*",
+    "https://www.amazon.ca/*",
+    "https://www.amazon.it/*",
+    "https://www.amazon.es/*"
+  ],
+  "optional_host_permissions": [
+    "http://*/*",
+    "https://*/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "打开航标选品"
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'none'"
+  }
+}
