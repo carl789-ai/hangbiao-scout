@@ -1,4 +1,12 @@
 export const SITES = {com:'美国',de:'德国',fr:'法国','co.uk':'英国','co.jp':'日本',ca:'加拿大',it:'意大利',es:'西班牙'};
+export const PARSER_VERSION='reviews-20261027';
+export function reviewCount(block){
+ const suffix=/(\d[\d\s.,\u00a0]*(?:[KkMm]\+?)?)\s*(?:ratings?|reviews?|bewertungen?|évaluations?|avis|valutazioni|recensioni|valoraciones?|reseñas?|opiniones?|avaliaç(?:ões|ão)|件の評価|個の評価|件)/i;
+ for(const a of block?.querySelectorAll('a[aria-label]')||[]){const match=a.getAttribute('aria-label')?.match(suffix);if(match){const n=number(match[1]);if(Number.isInteger(n)&&n>=0)return n;}}
+ const text=block?.querySelector('a[href*="#customerReviews"] span,.s-underline-text')?.textContent?.trim();
+ if(text&&/^\(?\s*\d[\d\s.,\u00a0]*[KkMm]?\+?\s*\)?$/.test(text)){const n=number(text);if(Number.isInteger(n)&&n>=0)return n;}
+ return null;
+}
 export function keywordOf(row) {
  const aliases=['搜索词','关键词','搜索关键词','searchterm','searchterms','keyword','keywords','searchquery'];
  const key=Object.keys(row).find(k=>aliases.includes(k.replace(/[\s_\-]/g,'').toLowerCase()));
@@ -29,7 +37,7 @@ export function parseSearch(html,keyword,site='com',parse=html=>new DOMParser().
  if(!doc.querySelector('.s-result-list')){
   const match=html.match(/window\.location\.replace\(\s*("(?:\\.|[^"\\])*")\s*\)/);
   let dest;try{dest=match?new URL(JSON.parse(match[1]),`https://www.amazon.${site}`):null;}catch{}
-  if(dest?.hostname===`www.amazon.${site}`&&/^\/(b|shop|stores)(\/|$)/.test(dest.pathname))return {keyword,outcome:'non_search_redirect',redirectUrl:dest.href,url:`https://www.amazon.${site}/s?k=${encodeURIComponent(keyword)}`,uniqueAsinCount:null,lowReviewItemsCount:null,homeBlueSeaRatio:null,totalResults:null,totalSales:null,lowReviewTotalSales:null,averagePrice:null,averageReviews:null,averageRating:null,products:[],collectedAt:new Date().toISOString()};
+  if(dest?.hostname===`www.amazon.${site}`&&/^\/(b|shop|stores)(\/|$)/.test(dest.pathname))return {keyword,parserVersion:PARSER_VERSION,outcome:'non_search_redirect',redirectUrl:dest.href,url:`https://www.amazon.${site}/s?k=${encodeURIComponent(keyword)}`,uniqueAsinCount:null,lowReviewItemsCount:null,homeBlueSeaRatio:null,totalResults:null,totalSales:null,lowReviewTotalSales:null,averagePrice:null,averageReviews:null,averageRating:null,products:[],collectedAt:new Date().toISOString()};
   throw new CollectionError('未找到有效搜索结果，可能是 Amazon 错误页（变狗）或页面结构变化。','invalid_page');
  }
  const products=[], seen=new Set();
@@ -37,20 +45,19 @@ export function parseSearch(html,keyword,site='com',parse=html=>new DOMParser().
   const asin=el.getAttribute('data-asin');if(!asin||seen.has(asin)||el.querySelector('.puis-sponsored-label-text,.s-sponsored-label-text,span[class*="sponsored"]'))continue;
   seen.add(asin);
   const block=el.querySelector('[data-cy="reviews-block"]');
-  const label=Array.from(block?.querySelectorAll('a[aria-label]')||[]).map(a=>a.getAttribute('aria-label')).find(t=>/ratings?|reviews?|bewertungen|évaluations|avis|recensioni|valoraciones|評価/i.test(t));
-  const reviewText=label||block?.querySelector('a[href*="#customerReviews"] span,.s-underline-text')?.textContent;
-  // Compatibility rule: an unreadable review count is treated as zero, but remains explicitly flagged.
-  const reviews=number(reviewText), price=number(el.querySelector('.a-price .a-offscreen')?.textContent), rating=number(el.querySelector('.a-icon-alt')?.textContent);
+  // Unknown review counts stay unknown and are never classified as low-review products.
+  const reviews=reviewCount(block), price=number(el.querySelector('.a-price .a-offscreen')?.textContent), rating=number(el.querySelector('.a-icon-alt')?.textContent);
   const bought=Array.from(el.querySelectorAll('.a-size-base.a-color-secondary')).map(e=>purchaseLabel(e.textContent)).find(n=>n!=null)??null;
   const img=el.querySelector('.s-image');let imageUrl=img?.getAttribute('src')||img?.getAttribute('data-src')||'';if(!/^https:\/\//.test(imageUrl))imageUrl='';
   products.push({asin,title:el.querySelector('h2')?.textContent?.trim()||asin,price,reviews,rating,purchaseLabelCount:bought,imageUrl,url:`https://www.amazon.${site}/dp/${asin}`});
  }
  if(!products.length && !/no results|keine ergebnisse|aucun résultat|没有结果|一致する商品はありません/i.test(doc.body?.textContent||''))throw new CollectionError('搜索页没有可解析的自然商品，已暂停以免记录错误的零值。','invalid_page');
- const low=products.filter(p=>(p.reviews??0)<=100), n=products.length;
+ const low=products.filter(p=>p.reviews!=null&&p.reviews<=100), n=products.length;
  const avg=key=>{const known=products.filter(p=>p[key]!=null);return known.length?known.reduce((s,p)=>s+p[key],0)/known.length:null;};
  const breadcrumb=doc.querySelector('.s-breadcrumb')?.textContent||'';
  const total=breadcrumb.match(/(?:of\s+(?:over\s+)?|sur\s+(?:plus de\s+)?|von\s+(?:mehr als\s+)?)([\d.,]+)\s*(?:results?|résultats?|Ergebnissen)/i);
- return {keyword,outcome:'search',url:`https://www.amazon.${site}/s?k=${encodeURIComponent(keyword)}`,uniqueAsinCount:n,lowReviewItemsCount:low.length,homeBlueSeaRatio:n?low.length/n:0,unknownReviewItems:products.filter(p=>p.reviews==null).length,totalResults:total?number(total[1]):null,totalSales:products.reduce((s,p)=>s+(p.purchaseLabelCount||0),0),lowReviewTotalSales:low.reduce((s,p)=>s+(p.purchaseLabelCount||0),0),averagePrice:avg('price'),averageReviews:avg('reviews'),averageRating:avg('rating'),products,collectedAt:new Date().toISOString()};
+ const unknownReviewItems=products.filter(p=>p.reviews==null).length;
+ return {keyword,parserVersion:PARSER_VERSION,outcome:'search',url:`https://www.amazon.${site}/s?k=${encodeURIComponent(keyword)}`,uniqueAsinCount:n,lowReviewItemsCount:n&&unknownReviewItems===n?null:low.length,homeBlueSeaRatio:n&&unknownReviewItems<n?low.length/n:null,unknownReviewItems,totalResults:total?number(total[1]):null,totalSales:products.reduce((s,p)=>s+(p.purchaseLabelCount||0),0),lowReviewTotalSales:low.reduce((s,p)=>s+(p.purchaseLabelCount||0),0),averagePrice:avg('price'),averageReviews:avg('reviews'),averageRating:avg('rating'),products,collectedAt:new Date().toISOString()};
 }
 export function calculateProfit(e){
  const n=k=>Number(e[k]||0);const price=n('price'), orders=n('adOrders')+n('organicOrders');

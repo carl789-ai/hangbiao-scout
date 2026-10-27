@@ -1,4 +1,5 @@
 import * as db from './db.js';
+import {SITES} from './core.js';
 let gate=Promise.resolve();
 async function offscreen(){if(!await chrome.offscreen.hasDocument())await chrome.offscreen.createDocument({url:'offscreen.html',reasons:['DOM_PARSER'],justification:'逐批解析 Amazon 搜索 HTML，并逐条写入本地任务数据库，避免在界面保留页面文本。'});}
 function locked(fn){const next=gate.then(fn);gate=next.catch(()=>{});return next;}
@@ -12,7 +13,7 @@ chrome.runtime.onMessage.addListener((message,sender,respond)=>{
  if(message.type==='pause'){await db.updateTask(message.taskId,{state:'paused',reason:'已手动暂停，采集结果已保存。'});await chrome.runtime.sendMessage({target:'offscreen',type:'stop'}).catch(()=>{});return {ok:true};}
  if(message.type==='rotate'){return locked(async()=>{await chrome.offscreen.closeDocument();await offscreen();return {ok:true};});}
  if(message.type==='runnerStopped'){return locked(async()=>{if(await chrome.offscreen.hasDocument())await chrome.offscreen.closeDocument();chrome.power.releaseKeepAwake();return {ok:true};});}
- if(message.type==='capture'){const tabs=await chrome.tabs.query({url:Object.keys((await import('./core.js')).SITES).map(s=>`https://www.amazon.${s}/*`)});const tab=tabs.find(t=>t.active)||tabs[0];if(!tab)throw new Error('请先打开一个 Amazon 搜索页。');const [{result}]=await chrome.scripting.executeScript({target:{tabId:tab.id},func:()=>({html:document.documentElement.outerHTML,url:location.href})});return {ok:true,...result};}
+ if(message.type==='capture'){const tabs=await chrome.tabs.query({url:Object.keys(SITES).map(s=>`https://www.amazon.${s}/*`)});const searches=tabs.filter(t=>{try{return new URL(t.url).pathname==='/s';}catch{return false;}}).sort((a,b)=>(b.lastAccessed||0)-(a.lastAccessed||0));const tab=searches.find(t=>t.active)||searches[0];if(!tab)throw new Error('请先打开一个 Amazon 关键词搜索结果页。');const [{result}]=await chrome.scripting.executeScript({target:{tabId:tab.id},func:()=>({html:document.documentElement.outerHTML,url:location.href})});return {ok:true,...result};}
  return {ok:true};
  };work().then(respond,e=>respond({ok:false,error:e.message}));return true;
 });

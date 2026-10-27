@@ -1,6 +1,6 @@
 # 航标选品 · Hangbiao Scout
 
-本地优先的 Amazon 关键词与商品研究工具。2.0.0-beta.1 是新的独立实现，不依赖原供应商账号、原前端包、Codex、Chrome AI Bridge 或本地后端。普通用户只需 Chrome 116+。代码开放，采集结果只保存在自己的 Chrome。
+本地优先的 Amazon 关键词与商品研究工具。2.0.0-beta.2 是新的独立实现，不依赖原供应商账号、原前端包、Codex、Chrome AI Bridge 或本地后端。普通用户只需 Chrome 116+。代码开放，采集结果只保存在自己的 Chrome。
 
 ## 下载与安装
 

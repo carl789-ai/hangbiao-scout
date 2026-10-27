@@ -1,7 +1,7 @@
-import {norm,summary,keywordOf,SITES} from './core.js';
+import {norm,summary,keywordOf,SITES,PARSER_VERSION} from './core.js';
 const request = req=>new Promise((res,rej)=>{req.onsuccess=()=>res(req.result);req.onerror=()=>rej(req.error);});
 let dbPromise;
-export function openDB(){return dbPromise??=new Promise((res,rej)=>{const req=indexedDB.open('hangbiao-v2',1);req.onupgradeneeded=()=>{const db=req.result;db.createObjectStore('tasks',{keyPath:'id'});const items=db.createObjectStore('items',{keyPath:['taskId','key']});items.createIndex('task','taskId');items.createIndex('status',['taskId','status']);items.createIndex('outcome',['taskId','data.outcome']);const rows=db.createObjectStore('rows',{keyPath:['taskId','id']});rows.createIndex('task','taskId');db.createObjectStore('meta',{keyPath:'key'});};req.onsuccess=()=>res(req.result);req.onerror=()=>rej(req.error);});}
+export function openDB(){return dbPromise??=new Promise((res,rej)=>{const req=indexedDB.open('hangbiao-v2',2);req.onupgradeneeded=e=>{const db=req.result;if(e.oldVersion<1){db.createObjectStore('tasks',{keyPath:'id'});const items=db.createObjectStore('items',{keyPath:['taskId','key']});items.createIndex('task','taskId');items.createIndex('status',['taskId','status']);items.createIndex('outcome',['taskId','data.outcome']);const rows=db.createObjectStore('rows',{keyPath:['taskId','id']});rows.createIndex('task','taskId');db.createObjectStore('meta',{keyPath:'key'});}req.transaction.objectStore('items').createIndex('parser',['taskId','data.outcome','data.parserVersion']);};req.onsuccess=()=>res(req.result);req.onerror=()=>rej(req.error);});}
 export async function tx(names,mode,fn){const db=await openDB(),t=db.transaction(names,mode);const done=new Promise((res,rej)=>{t.oncomplete=res;t.onabort=()=>rej(t.error||new Error('存储事务中断'));t.onerror=()=>{};});try{const value=await fn(Object.fromEntries(names.map(n=>[n,t.objectStore(n)])));await done;return value;}catch(e){try{t.abort();}catch{}await done.catch(()=>{});throw e;}}
 export const getTask=id=>tx(['tasks'],'readonly',s=>request(s.tasks.get(id)));
 export const tasks=()=>tx(['tasks'],'readonly',s=>request(s.tasks.getAll()));
@@ -17,8 +17,8 @@ export async function appendRows(taskId,rows,source){
  if(!t.sources.includes(source))t.sources.push(source);await request(s.tasks.put(t));return added;});
 }
 export async function stats(taskId){return tx(['items'],'readonly',async s=>{
- const [total,completed,failed,working,redirect]=await Promise.all([request(s.items.index('task').count(taskId)),request(s.items.index('status').count([taskId,'done'])),request(s.items.index('status').count([taskId,'failed'])),request(s.items.index('status').count([taskId,'working'])),request(s.items.index('outcome').count([taskId,'non_search_redirect']))]);
- return {total,completed,failed,working,redirect,search:completed-redirect,pending:total-completed,untouched:total-completed-failed-working};});}
+ const [total,completed,failed,working,redirect,currentParser]=await Promise.all([request(s.items.index('task').count(taskId)),request(s.items.index('status').count([taskId,'done'])),request(s.items.index('status').count([taskId,'failed'])),request(s.items.index('status').count([taskId,'working'])),request(s.items.index('outcome').count([taskId,'non_search_redirect'])),request(s.items.index('parser').count([taskId,'search',PARSER_VERSION]))]);
+ return {total,completed,failed,working,redirect,outdated:Math.max(0,completed-redirect-currentParser),search:completed-redirect,pending:total-completed,untouched:total-completed-failed-working};});}
 export async function pageItems(taskId,{page=1,size=100,query='',status='',source='',minBlue='',minRatio='',sort='keyword'}={}){
  return tx(['items','rows'],'readonly',async s=>{let keys;if(source){keys=new Set();await new Promise((res,rej)=>{const q=s.rows.index('task').openCursor(IDBKeyRange.only(taskId));q.onerror=()=>rej(q.error);q.onsuccess=()=>{const c=q.result;if(!c)return res();if(c.value.source===source)keys.add(c.value.key);c.continue();};});}
  const matches=[];const qtext=norm(query);await new Promise((res,rej)=>{const q=s.items.index('task').openCursor(IDBKeyRange.only(taskId));q.onerror=()=>rej(q.error);q.onsuccess=()=>{const c=q.result;if(!c)return res();const v=c.value,d=v.data;const pass=(!qtext||norm(v.keyword).includes(qtext))&&(!status||v.status===status)&&(!keys||keys.has(v.key))&&(minBlue===''||(d?.lowReviewItemsCount!=null&&d.lowReviewItemsCount>=Number(minBlue)))&&(minRatio===''||(d?.homeBlueSeaRatio!=null&&d.homeBlueSeaRatio*100>=Number(minRatio)));if(pass)matches.push({key:v.key,keyword:v.keyword,status:v.status,error:v.error,data:d?{...d,products:undefined}:null});c.continue();};});
@@ -38,4 +38,12 @@ export async function restoreBackup(backup){
  if(backup.rows.some(row=>!keys.has(row.key)||norm(row.keyword)!==row.key||!row.original||typeof row.original!=='object'))throw new Error('备份原始行无效');
  const task=await createTask((backup.task?.name||'恢复任务')+' · 恢复',backup.task?.site||'com');
  await tx(['tasks','rows','items'],'readwrite',async s=>{for(const i of backup.items)await request(s.items.put({...i,taskId:task.id,status:i.status==='working'?'pending':i.status}));let idx=0;for(const row of backup.rows)await request(s.rows.put({...row,id:idx++,taskId:task.id}));await request(s.tasks.put({...task,state:'paused',inputRows:idx,sources:[...new Set(backup.rows.map(r=>r.source))],reason:'备份已恢复，点击继续只采未完成项。'}));});return task;
+}
+
+// Make a separate task; never rewrite successful legacy data or original rows.
+export async function recollectCopy(taskId){
+ const source=await getTask(taskId);if(!source||['running','importing'].includes(source.state))throw new Error('请先暂停任务，再建立重采副本。');
+ const task=await createTask(source.name+' · 重新采集',source.site);
+ try{for await(const rows of chunks('rows',taskId)){let batch=[],sourceName;for(const row of rows){if(batch.length&&row.source!==sourceName){await appendRows(task.id,batch,sourceName);batch=[];}sourceName=row.source;batch.push(row.original);}if(batch.length)await appendRows(task.id,batch,sourceName);}await updateTask(task.id,{state:'ready',recollectsTaskId:taskId,reason:'已保留旧任务。此副本将使用新版解析重新采集全部关键词。'});return task;}
+ catch(e){await updateTask(task.id,{state:'paused',reason:'重采副本建立中断：'+e.message});throw e;}
 }

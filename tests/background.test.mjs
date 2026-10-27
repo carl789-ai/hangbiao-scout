@@ -1,0 +1,5 @@
+import test from 'node:test';import assert from 'node:assert/strict';
+test('Service Worker的页面读取通过静态依赖处理，不触发禁止的动态import',async()=>{
+ let listener,queried=false;globalThis.chrome={runtime:{id:'unit',getURL:p=>'chrome-extension://unit/'+p,onMessage:{addListener:f=>listener=f},onStartup:{addListener(){}}},action:{onClicked:{addListener(){}}},tabs:{query:async q=>{queried=q.url.includes('https://www.amazon.com/*');return [{id:1,active:true,url:'https://www.amazon.com/'},{id:12,active:false,url:'https://www.amazon.com/s?k=x',lastAccessed:5}];}},scripting:{executeScript:async q=>{assert.equal(q.target.tabId,12);return [{result:{html:'live captured html',url:'https://www.amazon.com/s?k=x'}}];}},alarms:{create(){},onAlarm:{addListener(){}}},storage:{local:{setAccessLevel:async()=>{}}}};
+ await import('../extension/background.js');const response=await new Promise(resolve=>{assert.equal(listener({type:'capture'},{id:'unit',url:'chrome-extension://unit/index.html'},resolve),true);});assert.equal(response.ok,true);assert.equal(response.html,'live captured html');assert.equal(queried,true);
+});
