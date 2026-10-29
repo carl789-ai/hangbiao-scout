@@ -1,6 +1,7 @@
 import * as db from './db.js';
 import {parseSearch,CollectionError} from './core.js';
 import {runKeywordBatch} from './ai.js';
+import {readAiConfig} from './execution-settings.js';
 export async function fetchSearch(item,site,signal,transport=fetch){
  let res;try{res=await transport(`https://www.amazon.${site}/s?k=${encodeURIComponent(item.keyword)}`,{credentials:'include',cache:'no-store',signal});}catch(e){throw new CollectionError(e.name==='AbortError'?'本次请求已中止':'网络连接失败：'+e.message,'network');}
  if([403,429,503].includes(res.status))throw new CollectionError(`Amazon 返回 HTTP ${res.status}`,'blocked');
@@ -12,7 +13,7 @@ export async function fetchSearch(item,site,signal,transport=fetch){
  return parseSearch(html,item.keyword,site);
 }
 export class Runner{
- constructor({store=db,fetchItem=fetchSearch,analyzeBatch=runKeywordBatch,aiConfig=async()=>(await chrome.storage.local.get('ai')).ai||{},notify=()=>{},rotate=()=>{},settings=()=>({concurrency:3,delayMs:1200}),wait=ms=>new Promise(r=>setTimeout(r,ms))}={}){Object.assign(this,{store,fetchItem,analyzeBatch,aiConfig,notify,rotate,settings,wait});this.running=false;this.controllers=new Set();}
+ constructor({store=db,fetchItem=fetchSearch,analyzeBatch=runKeywordBatch,aiConfig=readAiConfig,notify=()=>{},rotate=()=>{},settings=()=>({concurrency:3,delayMs:1200}),wait=ms=>new Promise(r=>setTimeout(r,ms))}={}){Object.assign(this,{store,fetchItem,analyzeBatch,aiConfig,notify,rotate,settings,wait});this.running=false;this.controllers=new Set();}
  stop(){for(const c of this.controllers)c.abort();}
  async aiBatch(task,after,keys){
  const template=task.aiOptions?.template||'keyword',items=await this.store.claimAnalysis(task.id,template,task.workflow,5,after,keys);if(!items.length)return null;
@@ -21,7 +22,7 @@ export class Runner{
  for(const {key,result}of parsed.results)await this.store.saveAnalysis(task.id,key,template,{state:'done',result,model:config.model,error:null});
  if(parsed.missing.length){for(const i of parsed.missing)await this.store.saveAnalysis(task.id,i.key,template,{state:'failed',error:parsed.issues[0]||'本批次模型漏回结果'});throw new Error(parsed.issues[0]||`模型返回不完整，已保存 ${parsed.results.length} 条，可继续补齐其余项`);}
  return items.at(-1).key;
- }catch(e){for(const i of items){const saved=await this.store.getItem(task.id,i.key);if(saved.analysis?.[template]?.state!=='done')await this.store.saveAnalysis(task.id,i.key,template,{state:'failed',error:e.name==='AbortError'?'分析已停止':e.message});}throw e;}
+ }catch(e){const manuallyPaused=(await this.store.getTask(task.id))?.state!=='running';for(const i of items){const saved=await this.store.getItem(task.id,i.key);if(saved.analysis?.[template]?.state!=='done')await this.store.saveAnalysis(task.id,i.key,template,{state:manuallyPaused?'pending':'failed',error:manuallyPaused?null:e.name==='AbortError'?'分析已停止':e.message});}throw e;}
  finally{clearTimeout(timer);this.controllers.delete(controller);}
  }
  async run(taskId){if(this.running)return;this.running=true;let requests=0,aiAfter;try{
@@ -46,7 +47,7 @@ export class Runner{
  if(requests>=500||(performance.memory?.usedJSHeapSize||0)>256*1024*1024){await this.store.setMeta('rotateTask',taskId);this.rotate(taskId);return;}
  await this.wait(Math.max(500,Math.min(30000,Number(opts.delayMs)||1200)));
  }
- }catch(e){await this.store.updateTask(taskId,{state:'paused',reason:e.message,issue:{kind:'ai',message:e.message}}).catch(()=>{});}
+ }catch(e){const current=await this.store.getTask(taskId);if(current?.state==='running')await this.store.updateTask(taskId,{state:'paused',reason:e.message,issue:{kind:'ai',message:e.message}}).catch(()=>{});}
  finally{this.running=false;this.notify(taskId);}
  }
 }

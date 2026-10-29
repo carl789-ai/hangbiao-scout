@@ -14,7 +14,7 @@ test('仅AI分析超过20词、五词一批；部分返回保留成功，续跑�
  const runner=new Runner({analyzeBatch,aiConfig:async()=>({model:'test'}),wait:async()=>{},fetchItem:async()=>{throw new Error('仅AI不可请求Amazon');}});await runner.run(task.id);assert.equal((await db.analysisStats(task.id,'keyword','ai')).completed,7);assert.equal((await db.getTask(task.id)).state,'paused');
  await db.prepareRun(task.id);let remaining=0;const resume=new Runner({aiConfig:async()=>({model:'test'}),analyzeBatch:async({items})=>{for(const i of items)assert.ok(!processed.has(i.key));remaining+=items.length;return {results:items.map(i=>({key:i.key,result:{overall_score:64,llm_reason:'补齐测试'}})),missing:[],issues:[]};}});await resume.run(task.id);assert.equal(remaining,20);assert.equal((await db.analysisStats(task.id,'keyword','ai')).completed,27);assert.equal((await db.stats(task.id)).completed,0);
  assert.equal((await text(out.csv(task.id,true))).split('\r\n').length-2,0);const csv=await text(out.csv(task.id));assert.equal(csv.split('\r\n').length-2,28);assert.ok(csv.includes('补齐测试'));assert.ok(csv.includes('AI-keyword:综合评分'));
- const backup=JSON.parse(await text(out.backup(task.id))),restored=await db.restoreBackup(backup);assert.equal((await db.analysisStats(restored.id,'keyword','ai')).completed,27);const html=await text(out.html(task.id));assert.ok(html.includes('补齐测试'));assert.ok(html.includes('资料')||html.includes('AI 研判'));
+ const backup=JSON.parse(await text(out.backup(task.id))),restored=await db.restoreBackup(backup);assert.equal((await db.analysisStats(restored.id,'keyword','ai')).completed,27);const html=await text(out.html(task.id));assert.ok(html.includes('补齐测试'));assert.ok(html.includes('AI 分析')&&html.includes('查看原始字段'));
 });
 test('采集后AI逐批处理，新增关键词不因游标漏分析；采集失败不写零也不触发该词AI',async()=>{
  const task=await setup(13,'full');await db.prepareRun(task.id);const seen=[];const runner=new Runner({settings:()=>({concurrency:3}),wait:async()=>{},aiConfig:async()=>({model:'test'}),fetchItem:async i=>result(i.keyword),analyzeBatch:async({items})=>{for(const i of items){assert.equal(i.status,'done');seen.push(i.key);}return {results:items.map(i=>({key:i.key,result:{overall_score:70,llm_reason:'test'}})),missing:[],issues:[]};}});await runner.run(task.id);assert.equal(new Set(seen).size,13);assert.equal(seen.length,13);assert.equal((await db.getTask(task.id)).state,'complete');
@@ -30,4 +30,10 @@ test('部分AI任务备份恢复后保留模式、字段及自定义提示词，
  assert.equal(savedTask.workflow,'ai');assert.deepEqual(savedTask.aiOptions,aiOptions);let count=0;
  await db.prepareRun(restored.id);await new Runner({aiConfig:async()=>({model:'test'}),fetchItem:async()=>{throw new Error('不应采集');},analyzeBatch:async({items,task})=>{assert.equal(task.aiOptions.prompt,aiOptions.prompt);count+=items.length;return {results:items.map(i=>({key:i.key,result:{overall_score:60,llm_reason:'续跑'}})),missing:[],issues:[]};}}).run(restored.id);
  assert.equal(count,2);assert.equal((await db.analysisStats(restored.id,'blue_ocean','ai')).completed,5);assert.equal((await db.getTask(restored.id)).state,'complete');
+});
+
+test('自定义分析模板会进入CSV列，保留字段及研判内容',async()=>{
+ const task=await setup(1,'ai');await db.updateTask(task.id,{aiOptions:{template:'custom-growth',templateName:'增长研判'}});const item=(await db.pageItems(task.id)).items[0];
+ await db.saveAnalysis(task.id,item.key,'custom-growth',{state:'done',result:{overall_score:84,llm_reason:'适合小批量测试',custom_signal:'复购场景稳定'}});
+ const csv=await text(out.csv(task.id));assert.ok(csv.includes('AI-custom-growth:综合评分'));assert.ok(csv.includes('AI-custom-growth:custom_signal'));assert.ok(csv.includes('适合小批量测试'));assert.ok(csv.includes('复购场景稳定'));
 });

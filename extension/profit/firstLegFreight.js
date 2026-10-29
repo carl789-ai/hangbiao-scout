@@ -1,5 +1,6 @@
 // Ported from the owner’s 4175 calculator. No project records or configuration included.
 export const FIRST_LEG_VOLUMETRIC_DIVISOR = 6000;
+export const FIRST_LEG_AIR_VOLUMETRIC_DIVISOR = 5000;
 export const FIRST_LEG_SEA_RATE_RMB_PER_KG = 15;
 export const FIRST_LEG_RED_EXPRESS_RATE_RMB_PER_KG = 70;
                                                         
@@ -24,13 +25,15 @@ export function getFirstLegFreightRate(mode                      = "sea", rates 
   return validFirstLegFreightRates(rates) ? rates[mode] : null;
 }
 
-export function getProfitMarginThreshold(mode                      = "sea") {
-  return mode === "red-express" ? 15 : 20;
+export function getProfitMarginThreshold(mode = "sea", targets = {}) {
+  const key=mode === "red-express" ? 'airTarget' : 'seaTarget';
+  const target=targets[key];
+  return typeof target==='number'&&Number.isFinite(target)&&target>=0&&target<=100?target:(mode === "red-express" ? 15 : 20);
 }
 
-export function meetsProfitMarginThreshold(margin               , mode                      = "sea") {
+export function meetsProfitMarginThreshold(margin, mode = "sea", targets = {}) {
   if (margin === null || !Number.isFinite(margin)) return false;
-  const threshold = getProfitMarginThreshold(mode);
+  const threshold = getProfitMarginThreshold(mode, targets);
   // Currency subtraction may turn mathematical 20% into 19.999999999999993%.
   // This tolerance covers only machine precision, never rounded UI percentages.
   const arithmeticTolerance = Number.EPSILON * Math.max(1, Math.abs(margin), threshold) * 8;
@@ -56,7 +59,8 @@ export function meetsProfitMarginThreshold(margin               , mode          
 export function calculateVolumetricWeightKg(input                                                                 ) {
   const dimensions = [input.lengthCm, input.widthCm, input.heightCm];
   if (dimensions.some((value) => !Number.isFinite(value) || value <= 0)) return null;
-  return (input.lengthCm * input.widthCm * input.heightCm) / FIRST_LEG_VOLUMETRIC_DIVISOR;
+  const divisor = input.freightMode === "red-express" ? FIRST_LEG_AIR_VOLUMETRIC_DIVISOR : FIRST_LEG_VOLUMETRIC_DIVISOR;
+  return (input.lengthCm * input.widthCm * input.heightCm) / divisor;
 }
 
 export function calculateFirstLegFreight(input                      , rates                              = DEFAULT_FIRST_LEG_FREIGHT_RATES)                              {

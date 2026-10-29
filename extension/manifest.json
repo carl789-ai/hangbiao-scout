@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "航标选品 · 采集工作台",
-  "version": "2.0.0.3",
-  "version_name": "2.0.0-beta.3",
+  "version": "2.0.0.4",
+  "version_name": "2.0.0-beta.4",
   "description": "本地保存的亚马逊关键词采集、断点续采、结果导出与自定义 AI 中转站。",
   "minimum_chrome_version": "116",
   "permissions": [

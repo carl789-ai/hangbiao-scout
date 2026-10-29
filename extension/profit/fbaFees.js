@@ -81,8 +81,11 @@
                      
  
 
-export const FBA_FEE_VERSION = "2026-US-NON-APPAREL-v3-ACTUAL-WEIGHT";
+export const FBA_FEE_VERSION = "2026-US-NON-APPAREL-v5-FUEL-3.5";
 export const FBA_SOURCE_LABEL = "2026 美国站 Amazon FBA 配送费速查 · 非服装";
+// Amazon US FBA fuel and logistics surcharge, effective 2026-04-17.
+// Applies to the delivery fee including additional weight, never to sale price.
+export const FBA_FUEL_SURCHARGE_RATE = 0.035;
 
 const OZ_G = 28.3495;
 const LB_G = 453.592;
@@ -249,8 +252,7 @@ function classifySize(
   if (within(calculationWeightG, lb(70))) return { tier: "oversize-50-70"         , lengthPlusGirthCm };
   if (within(calculationWeightG, lb(150))) return { tier: "oversize-70-150"         , lengthPlusGirthCm };
 
-  // Amazon specifies actual shipping weight for the >150 lb band.
-  return { tier: shippingWeightG > lb(150) ? "oversize-over-150"          : "oversize-70-150"         , lengthPlusGirthCm };
+  return { tier: "oversize-over-150", lengthPlusGirthCm };
 }
 
 function emptyQuote(warnings          )           {
@@ -268,10 +270,22 @@ function emptyQuote(warnings          )           {
     calculationWeightG: null,
     tableFeeUsd: null,
     additionalWeightFeeUsd: 0,
+    fulfillmentFeeUsd: null,
+    fuelSurchargeRate: FBA_FUEL_SURCHARGE_RATE,
+    fuelSurchargeUsd: null,
     totalFeeUsd: null,
     sourcePage: null,
     warnings,
   };
+}
+
+// User-selected dimensional divisor: cm³ / 2277.8 gives lb, converted to g
+// before comparison with packaged actual weight and the fee-table thresholds.
+export const TAIL_VOLUMETRIC_DIVISOR_CM3_PER_LB = 2277.8;
+export function calculateTailVolumetricWeightG(input) {
+  const dimensions = [input.lengthCm, input.widthCm, input.heightCm];
+  if (dimensions.some(value => !Number.isFinite(value) || value <= 0)) return null;
+  return dimensions.reduce((volume, side) => volume * side, 1) / TAIL_VOLUMETRIC_DIVISOR_CM3_PER_LB * LB_G;
 }
 
 export function quoteFbaFee(input               )           {
@@ -281,7 +295,9 @@ export function quoteFbaFee(input               )           {
   }
   const sortedDimensionsCm = [input.lengthCm, input.widthCm, input.heightCm]
     .sort((a, b) => b - a)                            ;
-  const calculationWeightG = input.shippingWeightG;
+  if (!["regular", "peak"].includes(input.period)) return emptyQuote(["请选择淡季或旺季费率。"]);
+  const volumetricWeightG = calculateTailVolumetricWeightG(input);
+  const calculationWeightG = Math.max(input.shippingWeightG, volumetricWeightG);
   const { tier, lengthPlusGirthCm } = classifySize(sortedDimensionsCm, calculationWeightG, input.shippingWeightG);
   const priceBand = priceBandFor(input.priceUsd);
   const warnings           = [];
@@ -316,7 +332,9 @@ export function quoteFbaFee(input               )           {
     warnings.push("最长边或长度加围长超过特别处理阈值，可能另收未列明的处理费。");
   }
 
-  const totalFeeUsd = tableFeeUsd + additionalWeightFeeUsd;
+  const fulfillmentFeeUsd = Number((tableFeeUsd + additionalWeightFeeUsd).toFixed(2));
+  const fuelSurchargeUsd = Math.round((fulfillmentFeeUsd * FBA_FUEL_SURCHARGE_RATE + Number.EPSILON) * 100) / 100;
+  const totalFeeUsd = Number((fulfillmentFeeUsd + fuelSurchargeUsd).toFixed(2));
 
   return {
     quoted: true,
@@ -330,8 +348,13 @@ export function quoteFbaFee(input               )           {
     sortedDimensionsCm,
     lengthPlusGirthCm,
     calculationWeightG,
+    actualWeightG: input.shippingWeightG,
+    volumetricWeightG,
     tableFeeUsd,
     additionalWeightFeeUsd,
+    fulfillmentFeeUsd,
+    fuelSurchargeRate: FBA_FUEL_SURCHARGE_RATE,
+    fuelSurchargeUsd,
     totalFeeUsd,
     sourcePage,
     warnings,
@@ -387,7 +410,7 @@ function weightReductionTargets(currentCalculationWeightG        ) {
 
 /**
  * Calculates only package changes that can reach a lower fee tier under the
- * same local fee table using the packaged actual weight.
+ * same local fee table. Each proposal recomputes actual and dimensional weight.
  */
 export function getFbaTierReductionProposals(input               )                             {
   const currentQuote = quoteFbaFee(input);
@@ -421,7 +444,7 @@ export function getFbaTierReductionProposals(input               )              
       }))
       .filter((reduction) => reduction.amount > 0);
     const weightReductionG = ceilForDisplay(Math.max(0, calculationWeightG - desiredCalculationWeightG));
-    if (weightReductionG > 0) requiredReductions.push({ metric: "计费重", amount: weightReductionG, unit: "g" });
+    if (weightReductionG > 0) requiredReductions.push({ metric: "包装实重", amount: weightReductionG, unit: "g" });
 
     const hasDimensionReduction = requiredReductions.some((reduction) => reduction.unit === "cm");
     const hasWeightReduction = requiredReductions.some((reduction) => reduction.unit === "g");

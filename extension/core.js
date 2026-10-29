@@ -13,6 +13,11 @@ export function keywordOf(row) {
  return key?String(row[key]??'').trim():'';
 }
 export const norm = value => String(value??'').trim().toLocaleLowerCase('en-US');
+export function chineseKeywordOf(row,keyword=''){
+ const aliases=['关键词翻译','中文关键词','关键词中文','搜索词翻译','搜索词中文','中文翻译','中文释义','keywordtranslation','chinesekeyword','keywordzh','keywordzhcn','translation'];
+ for(const alias of aliases){const key=Object.keys(row||{}).find(k=>k.replace(/[\s_\-（）()]/g,'').toLowerCase()===alias);const value=key?String(row[key]??'').trim():'';if(value&&/[\u3400-\u9fff]/.test(value))return value;}
+ return /[\u3400-\u9fff]/.test(keyword)?keyword:'';
+}
 export function summary(items) {
  let total=0,completed=0,failed=0,search=0,redirect=0,working=0;
  for(const i of items){total++;if(i.status==='done'){completed++;if(i.data?.outcome==='non_search_redirect')redirect++;else search++;}else if(i.status==='failed')failed++;else if(i.status==='working')working++;}
@@ -54,10 +59,10 @@ export function parseSearch(html,keyword,site='com',parse=html=>new DOMParser().
  if(!products.length && !/no results|keine ergebnisse|aucun résultat|没有结果|一致する商品はありません/i.test(doc.body?.textContent||''))throw new CollectionError('搜索页没有可解析的自然商品，已暂停以免记录错误的零值。','invalid_page');
  const low=products.filter(p=>p.reviews!=null&&p.reviews<=100), n=products.length;
  const avg=key=>{const known=products.filter(p=>p[key]!=null);return known.length?known.reduce((s,p)=>s+p[key],0)/known.length:null;};
- const breadcrumb=doc.querySelector('.s-breadcrumb')?.textContent||'';
+ const breadcrumb=doc.querySelector('[data-component-type="s-result-info-bar"]')?.textContent||doc.querySelector('.s-breadcrumb')?.textContent||doc.querySelector('.s-desktop-toolbar')?.textContent||'';
  const total=breadcrumb.match(/(?:of\s+(?:over\s+)?|sur\s+(?:plus de\s+)?|von\s+(?:mehr als\s+)?)([\d.,]+)\s*(?:results?|résultats?|Ergebnissen)/i);
  const unknownReviewItems=products.filter(p=>p.reviews==null).length;
- return {keyword,parserVersion:PARSER_VERSION,outcome:'search',url:`https://www.amazon.${site}/s?k=${encodeURIComponent(keyword)}`,uniqueAsinCount:n,lowReviewItemsCount:n&&unknownReviewItems===n?null:low.length,homeBlueSeaRatio:n&&unknownReviewItems<n?low.length/n:null,unknownReviewItems,totalResults:total?number(total[1]):null,totalSales:products.reduce((s,p)=>s+(p.purchaseLabelCount||0),0),lowReviewTotalSales:low.reduce((s,p)=>s+(p.purchaseLabelCount||0),0),averagePrice:avg('price'),averageReviews:avg('reviews'),averageRating:avg('rating'),products,collectedAt:new Date().toISOString()};
+ return {keyword,parserVersion:PARSER_VERSION,outcome:'search',url:`https://www.amazon.${site}/s?k=${encodeURIComponent(keyword)}`,uniqueAsinCount:n,lowReviewItemsCount:n&&unknownReviewItems===n?null:low.length,homeBlueSeaRatio:n&&unknownReviewItems<n?low.length/n:null,unknownReviewItems,totalResults:total?number(total[1]):null,totalResultsRelation:total?(/\b(?:over|mehr als|plus de)\b/i.test(total[0])?'gte':'eq'):null,totalSales:products.reduce((s,p)=>s+(p.purchaseLabelCount||0),0),lowReviewTotalSales:low.reduce((s,p)=>s+(p.purchaseLabelCount||0),0),averagePrice:avg('price'),averageReviews:avg('reviews'),averageRating:avg('rating'),products,collectedAt:new Date().toISOString()};
 }
 export function calculateProfit(e){
  const n=k=>Number(e[k]||0);const price=n('price'), orders=n('adOrders')+n('organicOrders');
@@ -67,8 +72,9 @@ export function calculateProfit(e){
  const profit=price*keep*(1-commission)-n('purchaseCost')-n('inboundShipping')-n('fbaFee')-n('otherFees')-allocatedAdCost;
  return {profit,allocatedAdCost,margin:profit/price};
 }
-export function endpointUrl(base){const u=new URL(String(base).trim());if(!['http:','https:'].includes(u.protocol)||u.username||u.password||u.search||u.hash)throw new Error('请输入 http 或 https 的接口根地址，不包含账号、查询参数或片段。');u.pathname=u.pathname.replace(/\/+$/,'');if(!u.pathname.endsWith('/chat/completions'))u.pathname+='/chat/completions';return u.href;}
+export function endpointUrl(base){let u;try{u=new URL(String(base).trim());}catch{throw new Error('请输入完整的 http 或 https 接口地址。');}if(!['http:','https:'].includes(u.protocol)||u.username||u.password||u.search||u.hash)throw new Error('请输入 http 或 https 的接口根地址，不包含账号、查询参数或片段。');let path=u.pathname.replace(/\/+$/,'')||'/v1';if(!path.endsWith('/chat/completions'))path+='/chat/completions';u.pathname=path;return u.href;}
 export function parseCSV(text){
+ text=String(text).replace(/^\uFEFF/,'');
  const rows=[];let row=[],cell='',quoted=false;
  for(let i=0;i<text.length;i++){const c=text[i];if(c==='"'){if(quoted&&text[i+1]==='"'){cell+='"';i++;}else if(quoted||!cell)quoted=!quoted;else cell+=c;}else if(!quoted&&(c===','||c==='\t')){row.push(cell);cell='';}else if(!quoted&&(c==='\n'||c==='\r')){if(c==='\r'&&text[i+1]==='\n')i++;row.push(cell);if(row.some(v=>v.trim()))rows.push(row);row=[];cell='';}else cell+=c;}
  if(quoted)throw new Error('CSV 引号未闭合');row.push(cell);if(row.some(v=>v.trim()))rows.push(row);

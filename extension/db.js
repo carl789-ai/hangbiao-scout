@@ -1,5 +1,6 @@
+import {filterErrors,matchesNumericFilters,compareItems} from './filtering.js';
 import {importedAnalysis} from './ai.js';
-import {norm,summary,keywordOf,SITES,PARSER_VERSION} from './core.js';
+import {norm,summary,keywordOf,chineseKeywordOf,SITES,PARSER_VERSION} from './core.js';
 const request = req=>new Promise((res,rej)=>{req.onsuccess=()=>res(req.result);req.onerror=()=>rej(req.error);});
 let dbPromise;
 export function openDB(){return dbPromise??=new Promise((res,rej)=>{const req=indexedDB.open('hangbiao-v2',3);req.onupgradeneeded=e=>{const db=req.result;if(e.oldVersion<1){db.createObjectStore('tasks',{keyPath:'id'});const items=db.createObjectStore('items',{keyPath:['taskId','key']});items.createIndex('task','taskId');items.createIndex('status',['taskId','status']);items.createIndex('outcome',['taskId','data.outcome']);const rows=db.createObjectStore('rows',{keyPath:['taskId','id']});rows.createIndex('task','taskId');db.createObjectStore('meta',{keyPath:'key'});}if(e.oldVersion<2)req.transaction.objectStore('items').createIndex('parser',['taskId','data.outcome','data.parserVersion']);if(e.oldVersion<3){req.transaction.objectStore('rows').createIndex('keyword',['taskId','key']);for(const template of ['keyword','blue_ocean','ad_ppc'])req.transaction.objectStore('items').createIndex('ai-'+template,['taskId','analysis.'+template+'.state']);}};req.onblocked=()=>rej(new Error('请关闭其他航标工作台标签，再刷新此页完成升级；任务数据会保留。'));req.onsuccess=()=>{req.result.onversionchange=()=>{req.result.close();dbPromise=undefined;};res(req.result);};req.onerror=()=>rej(req.error);});}
@@ -9,6 +10,22 @@ export const tasks=()=>tx(['tasks'],'readonly',s=>request(s.tasks.getAll()));
 export const setMeta=(key,value)=>tx(['meta'],'readwrite',s=>request(s.meta.put({key,value})));
 export const getMeta=key=>tx(['meta'],'readonly',async s=>(await request(s.meta.get(key)))?.value);
 export async function updateTask(id,patch){return tx(['tasks'],'readwrite',async s=>{const t=await request(s.tasks.get(id));if(!t)throw new Error('任务不存在');Object.assign(t,patch,{updatedAt:Date.now()});await request(s.tasks.put(t));return t;});}
+export async function renameTask(id,name){
+ name=String(name||'').trim();if(!name||name.length>80)throw new Error('任务名称须为 1–80 个字');
+ return updateTask(id,{name});
+}
+export async function deleteTask(id){
+ return tx(['tasks','items','rows','meta'],'readwrite',async s=>{
+  const task=await request(s.tasks.get(id));if(!task)throw new Error('任务不存在');
+  if(['running','importing'].includes(task.state))throw new Error('请先暂停任务，等待导入或执行结束后再删除');
+  for(const store of [s.items,s.rows])await new Promise((resolve,reject)=>{
+   const q=store.index('task').openCursor(IDBKeyRange.only(id));q.onerror=()=>reject(q.error);
+   q.onsuccess=()=>{const cursor=q.result;if(!cursor)return resolve();cursor.delete();cursor.continue();};
+  });
+  const rotate=await request(s.meta.get('rotateTask'));if(rotate?.value===id)await request(s.meta.delete('rotateTask'));
+  await request(s.tasks.delete(id));return task;
+ });
+}
 export async function createTask(name,site='com'){if(!SITES[site])throw new Error('不支持的站点');const task={id:crypto.randomUUID(),name:name||'未命名任务',site,state:'importing',reason:'',createdAt:Date.now(),updatedAt:Date.now(),inputRows:0,sources:[]};await tx(['tasks'],'readwrite',s=>request(s.tasks.add(task)));return task;}
 export async function appendRows(taskId,rows,source){
  return tx(['tasks','rows','items'],'readwrite',async s=>{const t=await request(s.tasks.get(taskId));if(!t||t.state!=='importing')throw new Error('此任务不在导入状态');let added=0;
@@ -20,11 +37,22 @@ export async function appendRows(taskId,rows,source){
 export async function stats(taskId){return tx(['items'],'readonly',async s=>{
  const [total,completed,failed,working,redirect,currentParser]=await Promise.all([request(s.items.index('task').count(taskId)),request(s.items.index('status').count([taskId,'done'])),request(s.items.index('status').count([taskId,'failed'])),request(s.items.index('status').count([taskId,'working'])),request(s.items.index('outcome').count([taskId,'non_search_redirect'])),request(s.items.index('parser').count([taskId,'search',PARSER_VERSION]))]);
  return {total,completed,failed,working,redirect,outdated:Math.max(0,completed-redirect-currentParser),search:completed-redirect,pending:total-completed,untouched:total-completed-failed-working};});}
-export async function pageItems(taskId,{page=1,size=100,query='',status='',source='',minBlue='',minRatio='',sort='keyword',minScore='',aiState='',template='keyword'}={}){
- return tx(['items','rows'],'readonly',async s=>{let keys;if(source){keys=new Set();await new Promise((res,rej)=>{const q=s.rows.index('task').openCursor(IDBKeyRange.only(taskId));q.onerror=()=>rej(q.error);q.onsuccess=()=>{const c=q.result;if(!c)return res();if(c.value.source===source)keys.add(c.value.key);c.continue();};});}
- const matches=[];const qtext=norm(query);await new Promise((res,rej)=>{const q=s.items.index('task').openCursor(IDBKeyRange.only(taskId));q.onerror=()=>rej(q.error);q.onsuccess=()=>{const c=q.result;if(!c)return res();const v=c.value,d=v.data,analysis=v.analysis?.[template],score=analysis?.result?.overall_score??analysis?.result?.rating;const pass=(minScore===''||(analysis?.state==='done'&&score>=Number(minScore)))&&(!aiState||(aiState==='pending'?analysis?.state!=='done':analysis?.state===aiState))&&(!qtext||norm(v.keyword).includes(qtext))&&(!status||v.status===status)&&(!keys||keys.has(v.key))&&(minBlue===''||(d?.lowReviewItemsCount!=null&&d.lowReviewItemsCount>=Number(minBlue)))&&(minRatio===''||(d?.homeBlueSeaRatio!=null&&d.homeBlueSeaRatio*100>=Number(minRatio)));if(pass)matches.push({key:v.key,keyword:v.keyword,status:v.status,error:v.error,analysis:v.analysis||{},data:d?{...d,top3Images:d.products?.slice(0,3).map(p=>p.imageUrl).filter(Boolean)||[],products:undefined}:null});c.continue();};});
- if(sort!=='keyword')matches.sort((a,b)=>((sort==='overall_score'?(b.analysis?.[template]?.result?.overall_score??b.analysis?.[template]?.result?.rating??-Infinity):(b.data?.[sort]??-Infinity))-(sort==='overall_score'?(a.analysis?.[template]?.result?.overall_score??a.analysis?.[template]?.result?.rating??-Infinity):(a.data?.[sort]??-Infinity)))||a.keyword.localeCompare(b.keyword));
- const total=matches.length,pages=Math.max(1,Math.ceil(total/size)),actual=Math.min(pages,Math.max(1,page));return {items:matches.slice((actual-1)*size,actual*size),total,pages,page:actual};});
+export async function pageItems(taskId,options={}){
+ const {page=1,size=100,query='',status='',source='',aiState='',template='keyword'}=options;
+ const errors=filterErrors(options);if(errors.length)throw new Error(errors[0]);
+ return tx(['items','rows'],'readonly',async s=>{
+  let keys;if(source){keys=new Set();await new Promise((res,rej)=>{const q=s.rows.index('task').openCursor(IDBKeyRange.only(taskId));q.onerror=()=>rej(q.error);q.onsuccess=()=>{const c=q.result;if(!c)return res();if(c.value.source===source)keys.add(c.value.key);c.continue();};});}
+  const matches=[],qtext=norm(query);
+  await new Promise((res,rej)=>{const q=s.items.index('task').openCursor(IDBKeyRange.only(taskId));q.onerror=()=>rej(q.error);q.onsuccess=()=>{
+   const c=q.result;if(!c)return res();const v=c.value,d=v.data,analysis=v.analysis?.[template];
+   const pass=(!aiState||(aiState==='pending'?(!analysis||analysis.state==='pending'):analysis?.state===aiState))&&(!qtext||norm(v.keyword).includes(qtext))&&(!status||(status==='redirect'?d?.outcome==='non_search_redirect':status==='search'?v.status==='done'&&d?.outcome==='search':v.status===status))&&(!keys||keys.has(v.key))&&matchesNumericFilters(v,options,template);
+   if(pass)matches.push({key:v.key,keyword:v.keyword,status:v.status,error:v.error,analysis:v.analysis||{},data:d?{...d,top3Images:d.products?.slice(0,3).map(p=>p.imageUrl).filter(Boolean)||[],products:undefined}:null});c.continue();
+  };});
+  matches.sort((a,b)=>compareItems(a,b,{...options,template}));
+  const total=matches.length,pages=Math.max(1,Math.ceil(total/size)),actual=Math.min(pages,Math.max(1,page)),items=matches.slice((actual-1)*size,actual*size);
+  await Promise.all(items.map(item=>new Promise((resolve,reject)=>{const q=s.rows.index('keyword').openCursor(IDBKeyRange.only([taskId,item.key]));q.onerror=()=>reject(q.error);q.onsuccess=()=>{const c=q.result;if(!c){item.keywordChinese=chineseKeywordOf({},item.keyword);return resolve();}const translated=chineseKeywordOf(c.value.original);if(translated&&(!source||c.value.source===source)){item.keywordChinese=translated;return resolve();}c.continue();};})));
+  return {items,total,pages,page:actual};
+ });
 }
 export const getItem=(taskId,key)=>tx(['items'],'readonly',s=>request(s.items.get([taskId,key])));
 export async function * chunks(store,taskId,size=250){let last;for(;;){const values=await tx([store],'readonly',s=>new Promise((res,rej)=>{const values=[],q=s[store].openCursor(last?IDBKeyRange.lowerBound(last,true):IDBKeyRange.lowerBound([taskId]));q.onerror=()=>rej(q.error);q.onsuccess=()=>{const c=q.result;if(!c||c.value.taskId!==taskId||values.length>=size)return res(values);values.push(c.value);last=c.primaryKey;c.continue();};}));if(!values.length)break;yield values;}}
@@ -39,7 +67,7 @@ export async function restoreBackup(backup){
  if(backup.rows.some(row=>!keys.has(row.key)||norm(row.keyword)!==row.key||!row.original||typeof row.original!=='object'))throw new Error('备份原始行无效');
  const task=await createTask((backup.task?.name||'恢复任务')+' · 恢复',backup.task?.site||'com');
  const workflow=['collect','ai','full'].includes(backup.task?.workflow)?backup.task.workflow:'collect';
- const aiOptions=backup.task?.aiOptions?{template:['keyword','blue_ocean','ad_ppc'].includes(backup.task.aiOptions.template)?backup.task.aiOptions.template:'keyword',fields:Array.isArray(backup.task.aiOptions.fields)?backup.task.aiOptions.fields:[],prompt:backup.task.aiOptions.prompt,system:backup.task.aiOptions.system}:undefined;
+ const aiOptions=backup.task?.aiOptions?{...(backup.task.aiOptions.inputMode?{inputMode:backup.task.aiOptions.inputMode==='ai'?'ai':'full'}:{}),template:/^(keyword|blue_ocean|ad_ppc|custom_[A-Za-z0-9_-]{1,90})$/.test(backup.task.aiOptions.template||'')?backup.task.aiOptions.template:'keyword',...(typeof backup.task.aiOptions.templateName==='string'?{templateName:backup.task.aiOptions.templateName.slice(0,40)}:{}),...(['keyword','blue_ocean','ad_ppc'].includes(backup.task.aiOptions.baseTemplate)?{baseTemplate:backup.task.aiOptions.baseTemplate}:{}),...(['detail-v1','summary-v1'].includes(backup.task.aiOptions.outputContract)?{outputContract:backup.task.aiOptions.outputContract}:{}),fields:Array.isArray(backup.task.aiOptions.fields)?backup.task.aiOptions.fields:[],prompt:backup.task.aiOptions.prompt,system:backup.task.aiOptions.system}:undefined;
  await tx(['tasks','rows','items'],'readwrite',async s=>{for(const i of backup.items)await request(s.items.put({...i,taskId:task.id,status:i.status==='working'?'pending':i.status}));let idx=0;for(const row of backup.rows)await request(s.rows.put({...row,id:idx++,taskId:task.id}));await request(s.tasks.put({...task,state:'paused',workflow,aiOptions,inputRows:idx,sources:[...new Set(backup.rows.map(r=>r.source))],reason:'备份已恢复，点击继续只处理未完成项。'}));});return task;
 }
 
@@ -54,9 +82,35 @@ export async function recollectCopy(taskId){
 export async function originalsForKeys(taskId,keys){return tx(['rows'],'readonly',async s=>{const pairs=await Promise.all(keys.map(async key=>[key,await request(s.rows.index('keyword').getAll([taskId,key]))]));return Object.fromEntries(pairs);});}
 export async function originalFields(taskId){const fields=new Set();for await(const rows of chunks('rows',taskId))for(const r of rows)for(const k of Object.keys(r.original))fields.add(k);return [...fields];}
 export async function analysisStats(taskId,template='keyword',mode='full'){
- if(!['keyword','blue_ocean','ad_ppc'].includes(template))throw new Error('分析模板无效');return tx(['items'],'readonly',async s=>{const i=s.items,index=i.index('ai-'+template);const [total,collected,completed,failed,working]=await Promise.all([request(i.index('task').count(taskId)),request(i.index('status').count([taskId,'done'])),request(index.count([taskId,'done'])),request(index.count([taskId,'failed'])),request(index.count([taskId,'working']))]);const eligible=mode==='ai'?total:collected;return {total,eligible,completed,failed,working,pending:total-completed,ready:Math.max(0,eligible-completed)};});
+ const builtin=['keyword','blue_ocean','ad_ppc'].includes(template);if(!builtin)return tx(['items'],'readonly',s=>new Promise((resolve,reject)=>{let total=0,collected=0,completed=0,failed=0,working=0;const q=s.items.openCursor();q.onerror=()=>reject(q.error);q.onsuccess=()=>{const c=q.result;if(!c){const eligible=mode==='ai'?total:collected;return resolve({total,eligible,completed,failed,working,pending:total-completed,ready:Math.max(0,eligible-completed)});}const i=c.value;if(i.taskId===taskId){total++;if(i.status==='done')collected++;const state=i.analysis?.[template]?.state;if(state==='done')completed++;else if(state==='failed')failed++;else if(state==='working')working++;}c.continue();};}));return tx(['items'],'readonly',async s=>{const i=s.items,index=i.index('ai-'+template);const [total,collected,completed,failed,working]=await Promise.all([request(i.index('task').count(taskId)),request(i.index('status').count([taskId,'done'])),request(index.count([taskId,'done'])),request(index.count([taskId,'failed'])),request(index.count([taskId,'working']))]);const eligible=mode==='ai'?total:collected;return {total,eligible,completed,failed,working,pending:total-completed,ready:Math.max(0,eligible-completed)};});
 }
-export async function claimAnalysis(taskId,template,mode='full',limit=5,after,keys){if(keys)return tx(['items'],'readwrite',async s=>{const out=[];for(const key of keys){const i=await request(s.items.get([taskId,key]));if(!i||(mode!=='ai'&&i.status!=='done')||i.analysis?.[template]?.state==='done')continue;i.analysis={...i.analysis,[template]:{...i.analysis?.[template],state:'working'}};await request(s.items.put(i));out.push(i);}return out;});return tx(['items'],'readwrite',s=>new Promise((res,rej)=>{const out=[],q=s.items.openCursor(after?IDBKeyRange.lowerBound([taskId,after],true):IDBKeyRange.lowerBound([taskId]));q.onerror=()=>rej(q.error);q.onsuccess=()=>{const c=q.result;if(!c||c.value.taskId!==taskId||out.length>=limit)return res(out);const i=c.value;if((mode==='ai'||i.status==='done')&&i.analysis?.[template]?.state!=='done'){i.analysis={...i.analysis,[template]:{...i.analysis?.[template],state:'working'}};c.update(i);out.push(i);}c.continue();};}));}
+export async function claimAnalysis(taskId,template,mode='full',limit=5,after,keys){
+ const eligible=i=>i&&(mode==='ai'||i.status==='done')&&i.analysis?.[template]?.state!=='done';
+ // Failed rows are retried individually; untouched rows retain normal batching.
+ if(keys)return tx(['items'],'readwrite',async s=>{
+  const out=[];
+  for(const key of keys){
+   const i=await request(s.items.get([taskId,key]));if(!eligible(i))continue;
+   const retry=i.analysis?.[template]?.state==='failed';if(retry&&out.length)break;
+   i.analysis={...i.analysis,[template]:{...i.analysis?.[template],state:'working'}};
+   await request(s.items.put(i));out.push(i);if(retry)break;
+  }
+  return out;
+ });
+ return tx(['items'],'readwrite',s=>new Promise((res,rej)=>{
+  const out=[],q=s.items.openCursor(after?IDBKeyRange.lowerBound([taskId,after],true):IDBKeyRange.lowerBound([taskId]));
+  q.onerror=()=>rej(q.error);q.onsuccess=()=>{
+   const c=q.result;if(!c||c.value.taskId!==taskId||out.length>=limit)return res(out);
+   const i=c.value;
+   if(eligible(i)){
+    const retry=i.analysis?.[template]?.state==='failed';if(retry&&out.length)return res(out);
+    i.analysis={...i.analysis,[template]:{...i.analysis?.[template],state:'working'}};c.update(i);out.push(i);
+    if(retry)return res(out);
+   }
+   c.continue();
+  };
+ }));
+}
 export async function saveAnalysis(taskId,key,template,patch){return tx(['items'],'readwrite',async s=>{const i=await request(s.items.get([taskId,key]));if(!i)throw new Error('分析对应的关键词不存在');i.analysis={...i.analysis,[template]:{...i.analysis?.[template],...patch,updatedAt:Date.now()}};await request(s.items.put(i));});}
 export async function saveProductAnalysis(taskId,key,asin,result){return tx(['items'],'readwrite',async s=>{const i=await request(s.items.get([taskId,key]));if(!i)throw new Error('原关键词记录不存在');i.productAnalysis={...i.productAnalysis,[asin]:result};await request(s.items.put(i));});}
 export async function saveMarketAnalysis(taskId,key,result){return tx(['items'],'readwrite',async s=>{const i=await request(s.items.get([taskId,key]));if(!i)throw new Error('原关键词记录不存在');i.marketAnalysis=result;await request(s.items.put(i));});}

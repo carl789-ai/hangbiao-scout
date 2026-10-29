@@ -9,6 +9,7 @@ chrome.runtime.onMessage.addListener((message,sender,respond)=>{
  if(message.target==='offscreen')return;
  const work=async()=>{
  if(message.type==='getCollectionSettings')return {ok:true,settings:(await chrome.storage.local.get('collection')).collection||{}};
+ if(message.type==='getAiConfig'){if(sender.url!==chrome.runtime.getURL('offscreen.html'))throw new Error('AI 配置仅供内部执行器读取');return {ok:true,config:(await chrome.storage.local.get('ai')).ai||{}};}
  if(message.type==='start'){return locked(async()=>{if(await chrome.offscreen.hasDocument())throw new Error('采集执行器正在工作，请等待暂停或轮换完成。');const task=await db.getTask(message.taskId);if(['ai','full'].includes(task?.workflow)){const {ai={}}=await chrome.storage.local.get('ai');if(!ai.apiKey||!ai.model||!ai.baseUrl)throw new Error('请先在设置中保存中转站配置');}await db.resetItems(message.taskId,'failed');await db.prepareRun(message.taskId);try{await offscreen();chrome.power.requestKeepAwake('system');return {ok:true};}catch(e){await db.updateTask(message.taskId,{state:'paused',reason:e.message});throw e;}});}
  if(message.type==='pause'){await db.updateTask(message.taskId,{state:'paused',reason:'已手动暂停，采集结果已保存。'});await chrome.runtime.sendMessage({target:'offscreen',type:'stop'}).catch(()=>{});return {ok:true};}
  if(message.type==='rotate'){return locked(async()=>{await chrome.offscreen.closeDocument();await offscreen();return {ok:true};});}

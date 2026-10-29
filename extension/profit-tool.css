@@ -1,0 +1,86 @@
+/* A compact cost worksheet beside a seasonal profit ledger. */
+#profitDialog{width:1240px;max-width:calc(100vw - 48px);padding:26px 30px 22px;color:var(--ink);background:#fafaf7;scrollbar-gutter:stable;max-height:calc(100dvh - 56px)}
+#profitDialog .dialog-heading{margin-bottom:24px;align-items:center}
+#profitDialog .dialog-heading .eyebrow{font-size:12px;line-height:1.4;letter-spacing:1.2px;color:var(--muted)}
+#profitDialog .dialog-heading h2{font-size:25px;line-height:1.3;margin:6px 0 0;color:var(--ink)}
+#profitDialog #closeProfit{width:40px;height:40px;min-height:40px;padding:0;border:1px solid var(--line);border-radius:50%;background:transparent;font-size:25px;line-height:1;color:var(--muted)}
+#profitDialog #closeProfit:hover{background:#e9ece6;color:var(--ink)}
+#profitDialog .profit-workbench{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(410px,1fr);gap:32px;align-items:start}
+#profitDialog .profit-inputs{margin:0;min-width:0}
+#profitDialog .profit-input-section{padding:0 0 21px;margin:0 0 20px;border-bottom:1px solid var(--line)}
+#profitDialog .profit-section-heading{display:flex;align-items:center;justify-content:space-between;gap:16px;margin:0 0 14px;min-height:28px}
+#profitDialog .profit-section-heading h3,#profitDialog .profit-results-heading h3{font-size:17px;line-height:1.4;font-weight:650;margin:0;color:var(--ink)}
+#profitDialog .profit-section-heading>span{font-size:14px;color:var(--muted)}
+#profitDialog .profit-input-grid{display:grid;gap:12px;min-width:0}
+#profitDialog .profit-cost-inputs{grid-template-columns:repeat(3,minmax(0,1fr))}
+#profitDialog .profit-package-inputs{grid-template-columns:repeat(4,minmax(0,1fr))}
+#profitDialog .profit-selling-inputs{grid-template-columns:repeat(3,minmax(0,1fr))}
+#profitDialog label{display:block;font-size:15px;line-height:1.45;margin:0;min-width:0;color:var(--muted)}
+#profitDialog label>span{display:block;margin-bottom:7px}
+#profitDialog input,#profitDialog select{font-size:16px;font-family:inherit;min-width:0;width:100%;margin:0;min-height:44px;font-variant-numeric:tabular-nums}
+#profitDialog .unit-input{display:flex;align-items:center;background:#fff;border:1px solid #c5cfc7;border-radius:5px;overflow:hidden;min-width:0}
+#profitDialog .unit-input input{background:transparent;border:0;box-shadow:none;width:0;flex:1;min-width:0;padding:10px 9px;color:var(--ink)}
+#profitDialog .unit-input i{font-size:13px;font-style:normal;white-space:nowrap;padding-right:9px;color:var(--muted)}
+#profitDialog .unit-input:focus-within{outline:2px solid var(--accent);outline-offset:2px}
+#profitDialog .unit-input:has(input:user-invalid){border-color:var(--warn)}
+#profitDialog .profit-transport select{width:140px;min-height:36px;padding:5px 8px;font-size:15px;border-color:var(--line);background:#fff}
+#profitDialog .profit-weight-readout{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:14px 0 0;padding:13px 14px;background:#edf0e9;border-radius:4px}
+#profitDialog .profit-weight-readout dt{font-size:13px;line-height:1.4;color:var(--muted)}
+#profitDialog .profit-weight-readout small{font-size:12px;font-weight:400;white-space:nowrap}
+#profitDialog .profit-weight-readout dd{font-size:20px;font-weight:600;color:var(--ink);margin:6px 0 0;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+#profitDialog .profit-rate-note{font-size:13px;line-height:1.5;color:var(--muted);margin:9px 0 0}
+#profitDialog .profit-defaults-note{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:13px;line-height:1.5;color:var(--muted)}
+#profitDialog .profit-defaults-note button{padding:5px 0;font-size:15px;line-height:1.5;min-height:36px;border:0;background:transparent;color:var(--accent);white-space:nowrap}
+#profitDialog .profit-defaults-note button:hover{text-decoration:underline}
+#profitDialog .profit-fba-note{font-size:13px;line-height:1.5;color:var(--muted);margin:10px 0 0}
+#profitDialog .profit-results{position:sticky;top:0;background:#fff;border:1px solid var(--line);border-top:3px solid var(--accent);border-radius:4px;padding:20px 22px;min-width:0}
+#profitDialog .profit-results-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:18px}
+#profitDialog #profitResultStatus{font-size:13px;line-height:1.5;color:var(--muted)}
+#profitDialog .profit-balance{display:grid;grid-template-columns:66px repeat(2,minmax(0,1fr));align-items:stretch}
+#profitDialog .profit-balance>div{min-width:0;padding:13px 0;border-bottom:1px solid #e3e7e1}
+#profitDialog .profit-balance>div:nth-child(3n+2),#profitDialog .profit-balance>div:nth-child(3n){text-align:right;padding-left:10px}
+#profitDialog .balance-heading{color:var(--muted);font-size:13px;line-height:1.5;align-self:end;padding-top:0!important}
+#profitDialog .balance-heading strong{display:block;font-size:16px;font-weight:600;color:var(--ink)}
+#profitDialog .balance-heading span{display:block;font-size:13px;margin-top:4px;white-space:nowrap}
+#profitDialog .balance-label{font-size:15px;color:var(--muted);display:flex;align-items:center}
+#profitDialog .balance-primary{color:var(--ink);font-weight:600}
+#profitDialog .balance-profit{padding-top:18px!important;padding-bottom:18px!important}
+#profitDialog .balance-profit strong{display:block;font-size:28px;line-height:1.3;font-weight:650;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+#profitDialog .balance-profit span{display:block;font-size:15px;line-height:1.4;margin-top:7px;color:var(--muted);font-variant-numeric:tabular-nums}
+#profitDialog .balance-number{font-size:22px;line-height:1.4;font-weight:600;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+#profitDialog .positive{color:var(--accent)}#profitDialog .negative{color:var(--warn)}
+#profitDialog #profitTarget{margin:12px 0 22px;font-size:13px;line-height:1.6;color:var(--muted)}
+#profitDialog #profitTarget.profit-below-target{color:var(--warn)}
+#profitDialog .profit-capital-row,#profitDialog .profit-batch-row{display:flex;justify-content:space-between;align-items:baseline;gap:15px;font-size:14px;line-height:1.5;margin:10px 0;color:var(--muted)}
+#profitDialog .profit-capital-row strong,#profitDialog .profit-batch-row strong{font-size:18px;font-weight:600;font-variant-numeric:tabular-nums;color:var(--ink);overflow-wrap:anywhere;text-align:right}
+#profitDialog .profit-cost-details{margin-top:20px;padding-top:14px;border-top:1px solid var(--line)}
+#profitDialog .profit-cost-details summary{display:flex;justify-content:space-between;gap:12px;align-items:center;font-size:14px;color:var(--muted);line-height:1.5;list-style:none}
+#profitDialog .profit-cost-details summary::after{content:'＋';font-size:16px;color:var(--accent)}
+#profitDialog .profit-cost-details[open] summary::after{content:'−'}
+#profitDialog .profit-cost-details summary span:last-child{margin-left:auto;font-size:13px}
+#profitDialog .profit-cost-ledger{display:grid;gap:9px;margin:14px 0 0;font-size:14px;color:var(--muted)}
+#profitDialog .profit-cost-ledger>div{display:flex;justify-content:space-between;gap:14px}
+#profitDialog .profit-cost-ledger dd{margin:0;color:var(--ink);font-variant-numeric:tabular-nums}
+#profitDialog .profit-cost-ledger>div:last-child{border-top:1px solid var(--line);padding-top:10px;color:var(--ink);font-weight:600}
+#profitDialog .profit-scenarios{margin-top:28px;padding-top:22px;border-top:1px solid var(--line)}
+#profitDialog .profit-season-tabs{display:flex;gap:4px;padding:3px;background:#e9ede6;border-radius:5px}
+#profitDialog .profit-season-tabs button{min-height:32px;padding:4px 16px;font-size:14px;border:0;border-radius:3px;background:transparent;color:var(--muted);box-shadow:none}
+#profitDialog .profit-season-tabs button[aria-pressed=true]{background:#fff;color:var(--accent);font-weight:600;box-shadow:0 1px 3px #1f302d12}
+#profitDialog .profit-season-tabs button:hover{color:var(--ink);background:#f5f6f2}
+#profitDialog .scenario-table-wrap{overflow:auto;border:1px solid var(--line);border-radius:4px;background:#fff}
+#profitDialog table{border-collapse:collapse;width:100%;min-width:650px;table-layout:auto}
+#profitDialog thead{display:table-header-group}#profitDialog tbody{display:table-row-group}#profitDialog tr{display:table-row;padding:0}
+#profitDialog th,#profitDialog td{display:table-cell;padding:12px 18px;border:0;border-bottom:1px solid var(--line);white-space:nowrap;text-align:right;font-size:15px;font-variant-numeric:tabular-nums}
+#profitDialog th{font-size:13px;font-weight:500;color:var(--muted);background:#f0f2ed}
+#profitDialog td:first-child,#profitDialog th:first-child{text-align:left;width:210px}
+#profitDialog tbody tr:last-child td{border-bottom:0}
+#profitDialog .scenario-table-wrap label>span{font-size:13px}
+#profitDialog .scenario-table-wrap .unit-input{max-width:160px;margin-top:5px}
+#profitDialog .scenario-table-wrap input{min-height:36px;padding-top:7px;padding-bottom:7px}
+#profitDialog .profit-formula{font-size:14px;line-height:1.75;color:var(--muted);margin-top:18px;border:0;padding-top:0}
+#profitDialog .profit-formula summary{font-size:14px;color:var(--muted)}
+#profitDialog .profit-formula p{margin:12px 0;max-width:92ch}
+@media(max-width:1100px){#profitDialog{padding:24px;max-width:calc(100vw - 32px)}#profitDialog .profit-workbench{grid-template-columns:minmax(0,1fr) minmax(330px,.86fr);gap:24px}#profitDialog .profit-package-inputs,#profitDialog .profit-selling-inputs{grid-template-columns:repeat(2,minmax(0,1fr))}#profitDialog .profit-results{padding:18px}#profitDialog .balance-profit strong{font-size:25px}#profitDialog .balance-number{font-size:20px}#profitDialog .profit-cost-inputs{grid-template-columns:repeat(2,minmax(0,1fr))}#profitDialog .profit-cost-inputs>label:last-child{grid-column:1/-1}}
+@media(max-width:760px){#profitDialog{padding:20px 18px;max-width:calc(100vw - 20px);max-height:calc(100dvh - 28px)}#profitDialog .dialog-heading{margin-bottom:22px}#profitDialog .dialog-heading h2{font-size:23px}#profitDialog .profit-workbench{display:flex;flex-direction:column;gap:26px}#profitDialog .profit-inputs,#profitDialog .profit-results{width:100%}#profitDialog .profit-results{position:static;padding:18px 16px}#profitDialog .profit-cost-inputs{grid-template-columns:repeat(2,minmax(0,1fr))}#profitDialog .profit-cost-inputs>label:last-child{grid-column:1/-1}#profitDialog .profit-balance{grid-template-columns:66px repeat(2,minmax(0,1fr))}#profitDialog .balance-profit strong{font-size:25px}#profitDialog .balance-number{font-size:20px}#profitDialog .profit-weight-readout{padding:12px 10px;gap:8px}#profitDialog .profit-weight-readout dt{font-size:13px}#profitDialog .profit-weight-readout small{display:block;font-size:12px}#profitDialog .profit-weight-readout dd{font-size:19px}#profitDialog .profit-input-section{margin-bottom:18px;padding-bottom:18px}#profitDialog .profit-defaults-note{align-items:flex-start;flex-wrap:wrap}#profitDialog .profit-scenarios{margin-top:24px}#profitDialog .profit-section-heading h3{font-size:17px}#profitDialog .profit-transport select{font-size:16px;width:140px}#profitDialog .profit-cost-inputs>label:last-child .unit-input{max-width:none}}
+#profitDialog .profit-transport .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap;border:0}
+@media(max-width:760px){#profitDialog .profit-results{order:-1}}
